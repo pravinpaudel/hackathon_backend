@@ -1,4 +1,7 @@
+const CognitiveIndex = require('../models/CognitiveIndex');
 const { clamp, normalizeScaleOneToFive } = require('./normalizationService');
+
+const EMA_ALPHA = 0.7;
 
 const getStatusAndMessage = (ciScore) => {
   if (ciScore < 0.3) {
@@ -21,7 +24,7 @@ const getStatusAndMessage = (ciScore) => {
   };
 };
 
-const calculateCognitiveIndex = ({ stress, mood, accuracy }) => {
+const calculateCIToday = ({ stress, mood, accuracy }) => {
   const normalizedStress = normalizeScaleOneToFive(stress);
   const normalizedMood = normalizeScaleOneToFive(mood);
   const boundedAccuracy = clamp(accuracy, 0, 1);
@@ -31,15 +34,41 @@ const calculateCognitiveIndex = ({ stress, mood, accuracy }) => {
     0.3 * (1 - normalizedMood) +
     0.2 * (1 - boundedAccuracy);
 
-  const boundedScore = clamp(ciScore, 0, 1);
-  const roundedScore = Number(boundedScore.toFixed(3));
+  return clamp(ciScore, 0, 1);
+};
+
+const applyEma = (ciToday, ciPrevious) => {
+  if (ciPrevious === null || ciPrevious === undefined) {
+    return ciToday;
+  }
+
+  return EMA_ALPHA * ciToday + (1 - EMA_ALPHA) * ciPrevious;
+};
+
+const calculateAndStoreCognitiveIndex = async ({ userId, stress, mood, accuracy }) => {
+  const ciToday = calculateCIToday({ stress, mood, accuracy });
+
+  const latestPreviousCI = await CognitiveIndex.findOne({ userId }).sort({
+    createdAt: -1,
+  });
+
+  const ciPrevious = latestPreviousCI ? latestPreviousCI.ciScore : null;
+  const ciFinal = clamp(applyEma(ciToday, ciPrevious), 0, 1);
+  const roundedFinalScore = Number(ciFinal.toFixed(3));
+  const classification = getStatusAndMessage(roundedFinalScore);
+
+  await CognitiveIndex.create({
+    userId,
+    ciScore: roundedFinalScore,
+    status: classification.status,
+  });
 
   return {
-    ciScore: roundedScore,
-    ...getStatusAndMessage(roundedScore),
+    ciScore: roundedFinalScore,
+    ...classification,
   };
 };
 
 module.exports = {
-  calculateCognitiveIndex,
+  calculateAndStoreCognitiveIndex,
 };

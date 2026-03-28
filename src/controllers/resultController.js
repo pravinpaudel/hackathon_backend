@@ -1,7 +1,8 @@
 const CheckIn = require('../models/CheckIn');
 const GameSession = require('../models/GameSession');
-const CognitiveIndex = require('../models/CognitiveIndex');
-const { calculateCognitiveIndex } = require('../services/cognitiveIndexService');
+const {
+  calculateAndStoreCognitiveIndex,
+} = require('../services/cognitiveIndexService');
 
 const getLatestResult = async (req, res, next) => {
   try {
@@ -19,16 +20,11 @@ const getLatestResult = async (req, res, next) => {
       });
     }
 
-    const result = calculateCognitiveIndex({
+    const result = await calculateAndStoreCognitiveIndex({
+      userId,
       stress: latestCheckIn.stress,
       mood: latestCheckIn.mood,
       accuracy: latestGameSession.accuracy,
-    });
-
-    await CognitiveIndex.create({
-      userId,
-      ciScore: result.ciScore,
-      status: result.status,
     });
 
     return res.status(200).json(result);
